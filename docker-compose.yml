@@ -42,6 +42,13 @@ services:
       - NGWORD_DB_PATH=/data/ngwords.db
       # プロンプトテンプレート「AI アプリ」連携先（全ユーザー利用可）
       - PROMPT_APP_URL=${PROMPT_APP_URL:-http://prompt-app:8009/invoke}
+      # 成果物ファイルの再ホスト先（自前 S3 互換: SeaweedFS）
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
+      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:-http://localhost:8333}
+      - S3_BUCKET=${S3_BUCKET:-open-genai}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-opengenai}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-opengenai-secret}
+      - S3_PRESIGN_EXPIRY=${S3_PRESIGN_EXPIRY:-86400}
       # Dify 連携「AI アプリ」プロキシの endpoint（アプリ登録時の endpoint に使う）
       - DIFY_APP_URL=${DIFY_APP_URL:-http://dify-app:8004/invoke}
       # --- SAML 認証 (backend = SAML SP) ---
@@ -65,6 +72,7 @@ services:
       - modelpolicy-app
       - ngword-app
       - prompt-app
+      - seaweedfs
       - keycloak
     restart: unless-stopped
 
@@ -224,6 +232,22 @@ services:
       - backend_data:/data
     restart: unless-stopped
 
+  # 成果物ファイル配信用の自前オブジェクトストレージ（OSS・S3互換）。
+  # マネージドサービスを使わない方針に沿い、SeaweedFS を同梱する。
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: open-genai-seaweedfs
+    command: >-
+      server -dir=/data -s3 -s3.port=8333
+      -s3.config=/etc/seaweedfs/s3.config.json -ip.bind=0.0.0.0
+    ports:
+      # dev: 署名付き URL をホストのブラウザから検証できるよう公開（本番は非公開＋別途配信）
+      - "8333:8333"
+    volumes:
+      - seaweedfs_data:/data
+      - ./seaweedfs/s3.config.json:/etc/seaweedfs/s3.config.json:ro
+    restart: unless-stopped
+
   web:
     build:
       context: ./genai-web
@@ -269,4 +293,5 @@ volumes:
   whisper_cache:
   dify_app_data:
   rag_app_data:
+  seaweedfs_data:
   ollama_data:

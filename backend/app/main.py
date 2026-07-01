@@ -31,7 +31,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from . import audit, auth, llm, ngwords, policy, storage, teams_store
+from . import audit, auth, llm, ngwords, objstore, policy, storage, teams_store
 
 # ファイル添付の保存先と、ブラウザから見たバックエンドの公開 URL
 FILES_DIR = os.environ.get("FILES_DIR", "/data/files")
@@ -477,6 +477,78 @@ def _texts_from_inputs(inputs: dict[str, Any]) -> str:
         if isinstance(v, str):
             parts.append(v)
     return "\n".join(parts)
+
+
+async def _rehost_artifacts(
+    request: Request,
+    user_id: str,
+    outputs: Any,
+    artifacts: Any,
+) -> tuple[Any, Any]:
+    """AI アプリの成果物ファイルを自前オブジェクトストレージへ再ホストする。
+
+    - `content`(base64) のアーティファクト（例: 画像）はインライン用にそのまま。
+    - `file_url`(外部参照, 例: Dify 署名URL) は実体を取得し、S3 互換(SeaweedFS)へ
+      アップロードして**自前の署名付き URL**へ差し替え、`outputs` に DL リンクを付す。
+    - オブジェクトストレージ未設定時は、取得元 URL をそのままリンクとして提示（フォールバック）。
+    """
+    if not artifacts or not isinstance(artifacts, list):
+        return outputs, artifacts
+
+    links: list[tuple[str, str, str]] = []
+    new_arts: list[Any] = []
+    async with httpx.AsyncClient(timeout=120) as client:
+        for a in artifacts:
+            if not isinstance(a, dict):
+                new_arts.append(a)
+                continue
+            if a.get("content"):
+                new_arts.append(a)  # インライン（画像等）はそのまま
+                continue
+            file_url = a.get("file_url") or ""
+            name = a.get("display_name") or "file"
+            mime = a.get("mime_type") or ""
+            if not file_url:
+                new_arts.append(a)
+                continue
+
+            data: bytes | None = None
+            if file_url.startswith("http://") or file_url.startswith("https://"):
+                try:
+                    r = await client.get(file_url)
+                    if r.status_code == 200:
+                        data = r.content
+                        mime = mime or r.headers.get("content-type", "")
+                except httpx.HTTPError as e:
+                    print(f"[exapps] 成果物の取得に失敗: {e}")
+
+            presigned = None
+            if data is not None and objstore.is_configured():
+                presigned = objstore.put_and_presign(
+                    data, filename=name, content_type=mime, user_id=user_id
+                )
+
+            final_url = presigned or file_url
+            new_arts.append({**a, "file_url": final_url})
+            links.append((name, final_url, (mime or "").split(";")[0].strip()))
+            try:
+                audit.record(
+                    request,
+                    action="file.output",
+                    usecase="exapp",
+                    output_text=(
+                        f"{name} -> {'objstore' if presigned else 'source-url'}"
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+    if links and isinstance(outputs, str):
+        lines = ["", "## 生成されたファイル", ""]
+        for name, url, mime in links:
+            lines.append(f"- [{name}]({url})" + (f"（{mime}）" if mime else ""))
+        outputs = outputs + "\n" + "\n".join(lines)
+    return outputs, new_arts
 
 app = FastAPI(title="Open GENAI Local Backend", version="0.1.0")
 
@@ -1124,6 +1196,12 @@ async def invoke_exapp(request: Request) -> JSONResponse:
     data = res.json()
     outputs = data.get("outputs", "")
     artifacts = data.get("artifacts")
+
+    # 成果物ファイルを自前オブジェクトストレージへ再ホスト（署名付き URL 化）
+    try:
+        outputs, artifacts = await _rehost_artifacts(request, user_id, outputs, artifacts)
+    except Exception as e:  # noqa: BLE001 - 失敗時は元の結果を返す
+        print(f"[exapps] 成果物の再ホストに失敗: {e}")
 
     # 実行履歴を保存（会話継続「会話を続ける」や履歴表示で参照される）
     team = teams_store.get_team(team_id)

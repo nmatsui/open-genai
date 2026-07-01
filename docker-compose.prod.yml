@@ -60,6 +60,14 @@ services:
       - NGWORD_APP_URL=${NGWORD_APP_URL:-http://ngword-app:8008/invoke}
       - NGWORD_DB_PATH=/data/ngwords.db
       - PROMPT_APP_URL=${PROMPT_APP_URL:-http://prompt-app:8009/invoke}
+      # 成果物ファイルの再ホスト先（自前 S3 互換: SeaweedFS）
+      # S3_PUBLIC_ENDPOINT は利用者がインターネットから到達する公開URLを指定すること
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
+      - S3_PUBLIC_ENDPOINT=${S3_PUBLIC_ENDPOINT:?S3_PUBLIC_ENDPOINT（公開URL）を設定してください}
+      - S3_BUCKET=${S3_BUCKET:-open-genai}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:?S3_ACCESS_KEY を設定してください}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:?S3_SECRET_KEY を設定してください}
+      - S3_PRESIGN_EXPIRY=${S3_PRESIGN_EXPIRY:-86400}
       - DIFY_APP_URL=${DIFY_APP_URL:-http://dify-app:8004/invoke}
       # --- 本番 URL（すべて proxy(443) 経由の公開 URL / 相対 /api）---
       - PUBLIC_BASE_URL=${PUBLIC_URL}/api
@@ -84,6 +92,7 @@ services:
       - modelpolicy-app
       - ngword-app
       - prompt-app
+      - seaweedfs
       - keycloak
     restart: unless-stopped
 
@@ -248,6 +257,20 @@ services:
       - backend_data:/data
     restart: unless-stopped
 
+  # 成果物ファイル配信用の自前オブジェクトストレージ（OSS・S3互換）。
+  # 本番: 利用者がインターネットから取得するため、別途 TLS 付きの公開経路
+  #       （S3_PUBLIC_ENDPOINT）へ 8333 を露出する構成にすること。
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: open-genai-seaweedfs
+    command: >-
+      server -dir=/data -s3 -s3.port=8333
+      -s3.config=/etc/seaweedfs/s3.config.json -ip.bind=0.0.0.0
+    volumes:
+      - seaweedfs_data:/data
+      - ./seaweedfs/s3.config.json:/etc/seaweedfs/s3.config.json:ro
+    restart: unless-stopped
+
 volumes:
   backend_data:
   web_node_modules:
@@ -260,3 +283,4 @@ volumes:
   whisper_cache:
   dify_app_data:
   rag_app_data:
+  seaweedfs_data:
