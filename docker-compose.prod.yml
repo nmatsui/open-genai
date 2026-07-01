@@ -57,6 +57,9 @@ services:
       - USERMGMT_APP_URL=${USERMGMT_APP_URL:-http://usermgmt-app:8006/invoke}
       - MODELPOLICY_APP_URL=${MODELPOLICY_APP_URL:-http://modelpolicy-app:8007/invoke}
       - POLICY_DB_PATH=/data/policy.db
+      - NGWORD_APP_URL=${NGWORD_APP_URL:-http://ngword-app:8008/invoke}
+      - NGWORD_DB_PATH=/data/ngwords.db
+      - PROMPT_APP_URL=${PROMPT_APP_URL:-http://prompt-app:8009/invoke}
       - DIFY_APP_URL=${DIFY_APP_URL:-http://dify-app:8004/invoke}
       # --- 本番 URL（すべて proxy(443) 経由の公開 URL / 相対 /api）---
       - PUBLIC_BASE_URL=${PUBLIC_URL}/api
@@ -79,6 +82,8 @@ services:
       - audit-app
       - usermgmt-app
       - modelpolicy-app
+      - ngword-app
+      - prompt-app
       - keycloak
     restart: unless-stopped
 
@@ -219,6 +224,26 @@ services:
     environment:
       - RAG_API_KEY=${RAG_API_KEY:-local-rag-key}
       - POLICY_DB_PATH=/data/policy.db
+    volumes:
+      - backend_data:/data
+    restart: unless-stopped
+
+  ngword-app:
+    build: ./ngword-app
+    container_name: open-genai-ngword-app
+    environment:
+      - RAG_API_KEY=${RAG_API_KEY:-local-rag-key}
+      - NGWORD_DB_PATH=/data/ngwords.db
+    volumes:
+      - backend_data:/data
+    restart: unless-stopped
+
+  prompt-app:
+    build: ./prompt-app
+    container_name: open-genai-prompt-app
+    environment:
+      - RAG_API_KEY=${RAG_API_KEY:-local-rag-key}
+      - PROMPT_DB_PATH=/data/prompts.db
     volumes:
       - backend_data:/data
     restart: unless-stopped

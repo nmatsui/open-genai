@@ -31,7 +31,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from . import audit, auth, llm, policy, storage, teams_store
+from . import audit, auth, llm, ngwords, policy, storage, teams_store
 
 # ファイル添付の保存先と、ブラウザから見たバックエンドの公開 URL
 FILES_DIR = os.environ.get("FILES_DIR", "/data/files")
@@ -65,8 +65,14 @@ MODELPOLICY_APP_URL = os.environ.get(
     "MODELPOLICY_APP_URL", "http://modelpolicy-app:8007/invoke"
 )
 
+# 禁止ワード/機密情報 入力制限「AI アプリ」連携先（管理者限定）
+NGWORD_APP_URL = os.environ.get("NGWORD_APP_URL", "http://ngword-app:8008/invoke")
+
+# プロンプトテンプレート「AI アプリ」連携先（全ユーザー利用可）
+PROMPT_APP_URL = os.environ.get("PROMPT_APP_URL", "http://prompt-app:8009/invoke")
+
 # 管理者(SystemAdminGroup)のみに一覧表示・実行を許可する exApp
-ADMIN_ONLY_EXAPP_IDS = {"audit", "usermgmt", "modelpolicy"}
+ADMIN_ONLY_EXAPP_IDS = {"audit", "usermgmt", "modelpolicy", "ngword"}
 
 COMMON_TEAM_ID = teams_store.COMMON_TEAM_ID
 
@@ -307,7 +313,95 @@ MODELPOLICY_SEED: dict[str, Any] = {
     "status": "published",
 }
 
-EXAPP_SEEDS = [RAG_SEED, WHISPER_SEED, SD_SEED, AUDIT_SEED, USERMGMT_SEED, MODELPOLICY_SEED]
+# 禁止ワード/機密情報 入力制限(NG-Word) AI アプリ（管理者限定）
+_NGWORD_FORM = (
+    '{'
+    '"operation":{"type":"select","title":"操作",'
+    '"items":[{"title":"現在の設定を表示","value":"view"},'
+    '{"title":"設定を更新","value":"set"}],"default_value":"view"},'
+    '"rules_json":{"type":"textarea","title":"ルールJSON（更新時のみ）",'
+    '"desc":"例: {\\"enabled\\":true,\\"words\\":[\\"禁止語\\"],\\"patterns\\":[\\"\\\\\\\\d{12}\\"]}"}'
+    '}'
+)
+NGWORD_SEED: dict[str, Any] = {
+    "exAppId": "ngword",
+    "teamId": COMMON_TEAM_ID,
+    "exAppName": "入力制限（禁止ワード・機密情報／管理者限定）",
+    "endpoint": NGWORD_APP_URL,
+    "apiKey": RAG_API_KEY,
+    "config": "",
+    "placeholder": _NGWORD_FORM,
+    "description": "禁止ワード・機密情報の入力制限ルールを管理者が設定します（システム管理者のみ）。",
+    "howToUse": (
+        "## 使い方\n\n"
+        "入力（チャット/AIアプリ）に対する禁止ワード・機密情報の制限を設定します。\n"
+        "backend が推論前段で入力を検査し、該当時はブロックします。\n\n"
+        "- `enabled`: 制御の有効/無効\n"
+        "- `case_sensitive`: 大文字小文字を区別するか\n"
+        "- `words`: 禁止ワード（部分一致でブロック）\n"
+        "- `patterns`: 機密情報の正規表現（例: 12桁の数字 `\\d{12}`）\n\n"
+        "> 管理系アプリ（本アプリ等）の実行は制限対象外です。\n"
+    ),
+    "copyable": False,
+    "status": "published",
+}
+
+# プロンプトテンプレート(Prompt) AI アプリ（全ユーザー利用可）
+_PROMPT_FORM = (
+    '{'
+    '"operation":{"type":"select","title":"操作",'
+    '"items":[{"title":"使う（チャットへ）","value":"use"},'
+    '{"title":"一覧","value":"list"},'
+    '{"title":"作成","value":"create"},'
+    '{"title":"削除","value":"delete"}],"default_value":"use"},'
+    '"template_id":{"type":"text","title":"テンプレートID（使う/削除）",'
+    '"desc":"「一覧」で表示される ID を指定。"},'
+    '"variables":{"type":"textarea","title":"変数（使う・任意）",'
+    '"desc":"本文の {{キー}} に対し、1行ずつ「キー: 値」で指定。"},'
+    '"title":{"type":"text","title":"タイトル（作成）"},'
+    '"body":{"type":"textarea","title":"本文（作成）",'
+    '"desc":"{{メモ}} のように {{ }} で変数を埋め込めます。"},'
+    '"target":{"type":"select","title":"挿入先（作成）",'
+    '"items":[{"title":"入力欄（content）","value":"content"},'
+    '{"title":"システムプロンプト","value":"system"}],"default_value":"content"},'
+    '"share":{"type":"select","title":"共有範囲（作成）",'
+    '"items":[{"title":"個人","value":"personal"},'
+    '{"title":"グループ共有","value":"group"},'
+    '{"title":"標準（管理者）","value":"standard"}],"default_value":"personal"},'
+    '"share_group":{"type":"text","title":"共有先グループ名（作成・グループ共有時）"}'
+    '}'
+)
+PROMPT_SEED: dict[str, Any] = {
+    "exAppId": "prompt",
+    "teamId": COMMON_TEAM_ID,
+    "exAppName": "プロンプトテンプレート",
+    "endpoint": PROMPT_APP_URL,
+    "apiKey": RAG_API_KEY,
+    "config": "",
+    "placeholder": _PROMPT_FORM,
+    "description": "標準テンプレートの利用や、個人/グループ共有テンプレートの作成ができます。選ぶとチャットへ流し込めます。",
+    "howToUse": (
+        "## 使い方\n\n"
+        "- 「一覧」で使えるテンプレート（標準/個人/共有）を確認します。\n"
+        "- 「使う」でテンプレート ID を指定すると、本文（変数置換後）と"
+        "**チャットで開くリンク**を表示します。\n"
+        "- 本文に `{{メモ}}` のような変数を入れ、「変数」に `メモ: ...` の形式で値を指定できます。\n"
+        "- 「作成」で個人/グループ共有のテンプレートを追加できます（標準は管理者のみ）。\n"
+    ),
+    "copyable": False,
+    "status": "published",
+}
+
+EXAPP_SEEDS = [
+    RAG_SEED,
+    WHISPER_SEED,
+    SD_SEED,
+    AUDIT_SEED,
+    USERMGMT_SEED,
+    MODELPOLICY_SEED,
+    NGWORD_SEED,
+    PROMPT_SEED,
+]
 
 
 def _now_iso() -> str:
@@ -355,6 +449,34 @@ def _model_denied(claims: dict[str, Any], model: Any) -> str | None:
     if policy.is_model_allowed(groups, _is_system_admin(claims), model_id):
         return None
     return f"モデル「{model_id}」の利用は許可されていません（管理者にお問い合わせください）。"
+
+
+def _ngword_denied(request: Request, text: str, *, usecase: str = "/chat") -> str | None:
+    """入力が禁止ワード/機密情報に該当すればブロック理由を返し、監査ログに記録する。"""
+    blocked, reason = ngwords.check(text or "")
+    if not blocked:
+        return None
+    try:
+        audit.record(
+            request,
+            action="input.blocked",
+            usecase=usecase,
+            status=403,
+            input_text=text,
+            output_text=reason or "",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return reason or "入力に使用できない語句が含まれています。"
+
+
+def _texts_from_inputs(inputs: dict[str, Any]) -> str:
+    """AI アプリの inputs から文字列値を連結する（禁止ワード検査用）。"""
+    parts: list[str] = []
+    for v in (inputs or {}).values():
+        if isinstance(v, str):
+            parts.append(v)
+    return "\n".join(parts)
 
 app = FastAPI(title="Open GENAI Local Backend", version="0.1.0")
 
@@ -657,10 +779,14 @@ async def create_messages(chat_id: str, request: Request) -> JSONResponse:
 @app.post("/predict")
 async def predict(request: Request) -> Response:
     body = await request.json()
+    messages = body.get("messages", [])
     denied = _model_denied(_claims_from_request(request), body.get("model"))
     if denied:
         return JSONResponse(status_code=403, content={"error": denied})
-    text = await llm.chat_once(body.get("messages", []), body.get("model"))
+    ng = _ngword_denied(request, _last_user_text(messages))
+    if ng:
+        return JSONResponse(status_code=403, content={"error": ng})
+    text = await llm.chat_once(messages, body.get("model"))
     return JSONResponse(content=text)
 
 
@@ -747,6 +873,8 @@ async def predict_stream(request: Request) -> StreamingResponse:
 
     # 利用ポリシーで許可されていないモデルはブロック（エラー行を1件流して終了）
     denied = _model_denied(_claims_from_request(request), model)
+    if not denied:
+        denied = _ngword_denied(request, _last_user_text(messages))
     if denied:
         async def _blocked():
             yield json.dumps({"text": denied, "stopReason": "error"}, ensure_ascii=False) + "\n"
@@ -954,6 +1082,12 @@ async def invoke_exapp(request: Request) -> JSONResponse:
         and not teams_store.is_team_member(team_id, user_id)
     ):
         return _forbidden("このアプリを実行する権限がありません")
+
+    # 禁止ワード/機密情報の入力制限（管理系 exApp はルール設定で語を含むため除外）
+    if ex_app_id not in ADMIN_ONLY_EXAPP_IDS:
+        ng = _ngword_denied(request, _texts_from_inputs(inputs), usecase=f"exapp:{ex_app_id}")
+        if ng:
+            return JSONResponse(status_code=403, content={"error": ng})
 
     started = _now_iso()
     try:
