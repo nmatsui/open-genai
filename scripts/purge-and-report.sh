@@ -3,7 +3,7 @@
 # 契約終了時のデータ完全削除＋削除報告書の生成（本サービス仕様書 8-(7) 対応）。
 #
 # 委託者の情報・アップロードファイル・チャット履歴・監査ログ・RAG(Qdrant)・
-# フォルダ権限・Keycloak ユーザ・Dify セッション等は、すべて Docker の名前付き
+# Keycloak ユーザ・Dify セッション・SeaweedFS 成果物等は、すべて Docker の名前付き
 # ボリュームに保存される。本スクリプトはそれらを **物理削除** し、実施内容の
 # 報告書（委託者提出用）を生成する。
 #
@@ -121,7 +121,7 @@ REMAINING="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E "^${PRO
   echo "## 補足"
   echo
   echo "- 本削除により、チャット履歴・アップロードファイル・監査ログ・RAG(Qdrant)・"
-  echo "  フォルダ権限・Keycloak ユーザ・Dify セッション等の委託者データを物理削除しました。"
+  echo "  Keycloak ユーザ・Dify セッション・SeaweedFS 成果物等の委託者データを物理削除しました。"
   echo "- ホスト上の TLS 証明書(proxy/certs/*.pem)や .env 等の設定ファイルは本スクリプトの"
   echo "  対象外です。必要に応じて別途削除してください。"
 } >> "$REPORT"

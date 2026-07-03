@@ -576,7 +576,7 @@ def list_visible_exapps(user_id: str, is_system_admin: bool) -> list[dict[str, A
     """AI アプリ一覧（公開済み）を可視範囲で返す（teamName 付き）。
 
     - システム管理者: 全チームの公開アプリ
-    - それ以外: 所属チーム + 共通チームの公開アプリ
+    - それ以外: 所属チーム + 共通チームの公開アプリ（管理者ツールチームは除外）
     """
     teams = {t["teamId"]: t["teamName"] for t in list_teams()}
     with _lock, _connect() as conn:
@@ -588,6 +588,8 @@ def list_visible_exapps(user_id: str, is_system_admin: bool) -> list[dict[str, A
     result = []
     for r in rows:
         app = _row_to_exapp(r)
+        if app["teamId"] == ADMIN_TEAM_ID and not is_system_admin:
+            continue
         if is_system_admin or app["teamId"] in visible_team_ids:
             result.append({**app, "teamName": teams.get(app["teamId"], "")})
     return result
@@ -671,21 +673,38 @@ def list_exapp_histories(
 
 
 def get_exapp_history(
-    team_id: str, ex_app_id: str, created_date: str
+    team_id: str, ex_app_id: str, created_date: str, user_id: str | None = None
 ) -> dict[str, Any] | None:
     with _lock, _connect() as conn:
-        r = conn.execute(
-            "SELECT * FROM exapp_histories"
-            " WHERE teamId = ? AND exAppId = ? AND createdDate = ?",
-            (team_id, ex_app_id, created_date),
-        ).fetchone()
+        if user_id is not None:
+            r = conn.execute(
+                "SELECT * FROM exapp_histories"
+                " WHERE teamId = ? AND exAppId = ? AND createdDate = ? AND userId = ?",
+                (team_id, ex_app_id, created_date, user_id),
+            ).fetchone()
+        else:
+            r = conn.execute(
+                "SELECT * FROM exapp_histories"
+                " WHERE teamId = ? AND exAppId = ? AND createdDate = ?",
+                (team_id, ex_app_id, created_date),
+            ).fetchone()
     return _row_to_history(r) if r else None
 
 
-def delete_exapp_history(team_id: str, ex_app_id: str, created_date: str) -> None:
+def delete_exapp_history(
+    team_id: str, ex_app_id: str, created_date: str, user_id: str | None = None
+) -> bool:
     with _lock, _connect() as conn:
-        conn.execute(
-            "DELETE FROM exapp_histories"
-            " WHERE teamId = ? AND exAppId = ? AND createdDate = ?",
-            (team_id, ex_app_id, created_date),
-        )
+        if user_id is not None:
+            cur = conn.execute(
+                "DELETE FROM exapp_histories"
+                " WHERE teamId = ? AND exAppId = ? AND createdDate = ? AND userId = ?",
+                (team_id, ex_app_id, created_date, user_id),
+            )
+        else:
+            cur = conn.execute(
+                "DELETE FROM exapp_histories"
+                " WHERE teamId = ? AND exAppId = ? AND createdDate = ?",
+                (team_id, ex_app_id, created_date),
+            )
+        return cur.rowcount > 0

@@ -1758,14 +1758,24 @@ async def list_exapp_histories(
 
 @app.get("/exapps/history")
 async def get_exapp_history(
+    request: Request,
     teamId: str = Query(default=""),
     exAppId: str = Query(default=""),
     createdDate: str = Query(default=""),
 ) -> dict[str, Any]:
-    # GetInvokeExAppHistoryResponse
+    # GetInvokeExAppHistoryResponse（本人の履歴のみ）
+    claims = _claims_from_request(request)
+    user_id = _user_id(claims)
     if not teamId or not exAppId or not createdDate:
         return {"history": None}
-    return {"history": teams_store.get_exapp_history(teamId, exAppId, createdDate)}
+    if (
+        teamId != COMMON_TEAM_ID
+        and not _is_system_admin(claims)
+        and not teams_store.is_team_member(teamId, user_id)
+    ):
+        return {"history": None}
+    hist = teams_store.get_exapp_history(teamId, exAppId, createdDate, user_id)
+    return {"history": hist}
 
 
 # ---------------------------------------------------------------------------
@@ -2066,5 +2076,10 @@ async def delete_exapp_history(
     ):
         return _forbidden()
     if createdDate:
-        teams_store.delete_exapp_history(team_id, ex_app_id, createdDate)
+        if _is_system_admin(claims):
+            teams_store.delete_exapp_history(team_id, ex_app_id, createdDate)
+        else:
+            teams_store.delete_exapp_history(
+                team_id, ex_app_id, createdDate, user_id
+            )
     return JSONResponse(content={})

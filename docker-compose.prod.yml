@@ -103,7 +103,8 @@ services:
       - modelpolicy-app
       - ngword-app
       - prompt-app
-      - seaweedfs
+      seaweedfs:
+        condition: service_healthy
       - keycloak
     restart: unless-stopped
 
@@ -297,6 +298,12 @@ services:
     volumes:
       - seaweedfs_data:/data
       - ./seaweedfs/s3.config.json:/etc/seaweedfs/s3.config.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8333/ 2>/dev/null || test $$? -eq 8"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
     restart: unless-stopped
 
 volumes:
