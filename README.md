@@ -138,7 +138,7 @@ Linux + NVIDIA GPU 機（例: **NVIDIA DGX Spark**）でも動作します。
 [`FORM_SPEC.md`](genai-web/packages/web/src/features/exapp/FORM_SPEC.md) を参照。
 
 - 追加: `packages/web/src/local/localAuth.ts` — ローカル SAML 認証のフロント側（JWT 取得/ログイン/サインアウト）
-- 追加: `packages/web/.env` — ローカル向け `VITE_APP_*`（接続先・モデル一覧 等）
+- 追加: `packages/web/.env.example` — ローカル向け `VITE_APP_*` の雛形（`cp .env.example .env`）
 - 改修: `src/main.tsx` — Cognito/SAML ログインゲート → **ローカル SAML ログインゲート**（AWS Amplify 撤去）
 - 改修: `src/hooks/useAuth.ts` — `fetchAuthSession()` → ローカル JWT デコード
 - 改修: `src/lib/fetcher.ts` — Cognito トークン → **ローカル JWT を Bearer 送信**
