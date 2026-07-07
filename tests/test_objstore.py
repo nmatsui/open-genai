@@ -16,6 +16,8 @@ def test_keys_from_artifacts_prefers_object_key() -> None:
 
 def test_keys_from_artifacts_parses_managed_file_url() -> None:
     objstore = load_service_module("backend/app/objstore.py")
+    # URL 解析はバケット名に依存するため、テスト内で明示（CI では env 未設定）
+    objstore.S3_BUCKET = "open-genai"
     artifacts = [
         {
             "file_url": (
